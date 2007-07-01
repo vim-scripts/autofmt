@@ -1,0 +1,11 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=1939
+
+This is a 'formatexpr' plugin and framework for it.
+
+Following method can be used:
+  compat (Vim compatible)
+  uax14 (Implementation of UAX #14)
+  Japanese
+
+UAX #14: Line Breaking Properties: http://unicode.org/reports/tr14/.
+
