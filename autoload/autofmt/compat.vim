@@ -1,6 +1,6 @@
 " Maintainer:   Yukihiro Nakadaira <yukihiro.nakadaira@gmail.com>
 " License:      This file is placed in the public domain.
-" Last Change:  2007-07-02
+" Last Change:  2007-07-04
 "
 " Options:
 "
@@ -54,6 +54,9 @@
 "     2 20 files.
 "   Line 2 is not list but it matches 'formatlistpat'.
 "
+"   Justify with padding or removing spaces.  How to re-format without
+"   breaking user typed space.
+"
 "
 " Reference:
 "   UAX #14: Line Breaking Properties
@@ -62,6 +65,8 @@
 "   UAX #11: East Asian Width
 "   http://unicode.org/reports/tr11/
 "
+"   Ward wrap - Wikipedia
+"   http://en.wikipedia.org/wiki/Word_wrap
 
 let s:cpo_save = &cpo
 set cpo&vim
@@ -193,11 +198,19 @@ function s:lib.find_boundary(line)
   while lst[i].col < start_col
     let i += 1
   endwhile
-  let i = self.skip_first(lst, i)
+  let start_idx = i
+  let i = self.skip_word(lst, i)
   let i = self.skip_space(lst, i)
   while i < len(lst)
     let brk = self.check_boundary(lst, i)
     let next = self.skip_word(lst, i)
+    if brk == "allow_break" && &fo =~ '1'
+      " don't break a line after a one-letter word.
+      let j = (break_idx == -1) ? start_idx : break_idx
+      if (j == 0 || lst[j - 1].c =~ '\s') && lst[j + 1].c =~ '\s'
+        let brk = "allow_break_before"
+      endif
+    endif
     if brk == "allow_break"
       let break_idx = i
       if &textwidth < lst[next - 1].virtcol
@@ -227,14 +240,11 @@ function s:lib.check_boundary(lst, i)
   "   "allow_break_before"  If lst[i] is over the 'textwidth', break a line at
   "                         previous breakable point, if possible.
   "   other                 Do not break.
+  "
 
   let [lst, i] = [a:lst, a:i]
 
   if lst[i-1].c =~ '\s'
-    if &fo =~ '1' && len(lst) == i + 1 && len(lst) > 4 &&
-          \ lst[i-2].c !~ '\s' && lst[i-3].c =~ '\s'
-      return "allow_break_before"
-    endif
     return "allow_break"
   elseif &fo =~ 'm'
     let bc = char2nr(lst[i-1].c)
@@ -252,21 +262,6 @@ function s:lib.check_boundary(lst, i)
     endif
   endif
   return "allow_break_before"
-endfunction
-
-function s:lib.skip_first(lst, i)
-  " Skip first word.  Also here is a chance to skip all characters that
-  " obviously no need to check_boundary().
-
-  let [lst, i] = [a:lst, a:i]
-  let i = self.skip_word(lst, i)
-  if &formatoptions =~ '1' && i == a:i + 1 && i != len(lst) && lst[i].c =~ '\s'
-    let i = self.skip_space(lst, i)
-    if i != len(lst)
-      let i = self.skip_word(lst, i)
-    endif
-  endif
-  return i
 endfunction
 
 function s:lib.skip_word(lst, i)

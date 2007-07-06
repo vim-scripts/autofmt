@@ -1,6 +1,6 @@
 " Maintainer:   Yukihiro Nakadaira <yukihiro.nakadaira@gmail.com>
 " License:      This file is placed in the public domain.
-" Last Change:  2007-07-02
+" Last Change:  2007-07-03
 "
 " Options:
 "
@@ -41,6 +41,11 @@ call extend(s:lib, s:compat)
 
 let s:lib.autofmt_allow_over_tw = 0
 
+" JIS X 4051 (Formatting rules for Japanese documents)
+" 4.3 Handling character prohibited a line break before
+" These character is not allowed to position at start of line.  It
+" should be dangled over the 'textwidth' or commited to next line with
+" previous character.
 let s:lib.autofmt_allow_over_tw_char = ""
       \ . ",)]}、〕〉》」』】〙〗〟’”⦆»"
       \ . "ヽヾーァィゥェォッャュョヮヵヶゝゞぁぃぅぇぉっゃゅょゃゎゕゖ々"
@@ -48,6 +53,8 @@ let s:lib.autofmt_allow_over_tw_char = ""
       \ . "?!‼⁇⁈⁉"
       \ . "・:;"
       \ . "。."
+" compatible character with different width or code point
+let s:lib.autofmt_allow_over_tw_char .= ""
       \ . "°′″，．：；？！）］｝…～"
 
 function! s:lib.check_boundary(lst, i)
