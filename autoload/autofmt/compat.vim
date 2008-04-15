@@ -1,6 +1,6 @@
 " Maintainer:   Yukihiro Nakadaira <yukihiro.nakadaira@gmail.com>
 " License:      This file is placed in the public domain.
-" Last Change:  2007-07-04
+" Last Change:  2008-04-15
 "
 " Options:
 "
@@ -84,7 +84,6 @@ function autofmt#compat#test()
 endfunction
 
 let s:lib = {}
-let s:lib.uni = unicode#import()
 
 function s:lib.formatexpr()
   if mode() =~# '[iR]' && &formatoptions =~# 'a'
@@ -572,18 +571,8 @@ function s:lib.char_width(c, ...)
     return 0
   elseif a:c == "\t"
     return self.tab_width(vcol)
-  elseif len(a:c) == 1  " quick check
-    return 1
-  else
-    let w = self.uni.prop_east_asian_width(a:c)
-    if w == "A"
-      return (&ambiwidth == "double") ? 2 : 1
-    elseif w =~ '[WF]'
-      return 2
-    else
-      return 1
-    endif
   endif
+  return (a:c =~ '^.\%2v') ? 1 : 2
 endfunction
 
 function s:lib.tab_width(vcol)
