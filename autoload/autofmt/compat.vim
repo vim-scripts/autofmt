@@ -1,6 +1,6 @@
 " Maintainer:   Yukihiro Nakadaira <yukihiro.nakadaira@gmail.com>
 " License:      This file is placed in the public domain.
-" Last Change:  2008-04-15
+" Last Change:  2008-12-30
 "
 " Options:
 "
@@ -39,7 +39,7 @@
 "
 "
 " TODO:
-"   'formatoptions': 'q' 'w' 'v' 'b'
+"   'formatoptions': 'w' 'v' 'b'
 "
 "   hoge(); /* format comment here */
 "   hoge(); /* format
@@ -98,7 +98,7 @@ function s:lib.formatexpr()
     echohl None
     return 1
   endif
-  if mode() == "n"
+  if mode() == 'n'
     call self.format_normal_mode(v:lnum, v:count)
   else
     call self.format_insert_mode(v:char)
@@ -135,7 +135,6 @@ function s:lib.format_insert_mode(char)
 
   if &textwidth == 0 || vcol <= &textwidth
         \ || &formatoptions !~# '[tc]'
-        \ || (&fo =~# 't' && &fo !~# 'c' && self.parse_leader(line)[1] != "")
         \ || (&fo !~# 't' && &fo =~# 'c' && self.parse_leader(line)[1] == "")
     return a:char
   endif
@@ -285,7 +284,7 @@ endfunction
 
 function s:lib.skip_leader(line)
   let col = 0
-  if &formatoptions =~# 'c'
+  if self.is_comment_enabled()
     let [indent, com_str, mindent, text, com_flags] = self.parse_leader(a:line)
     let col += len(indent) + len(com_str) + len(mindent)
   else
@@ -405,6 +404,14 @@ function s:lib.join_line(line1, line2)
   endif
 endfunction
 
+function s:lib.is_comment_enabled()
+  if mode() == 'n'
+    return &formatoptions =~# 'q'
+  else
+    return &formatoptions =~# 'c'
+  endif
+endfunction
+
 function s:lib.parse_leader(line)
   "  +-------- indent
   "  | +------ com_str
@@ -501,7 +508,7 @@ function s:lib.make_next_line_leader(line)
   else
     let listpat_indent = ""
   endif
-  if &formatoptions !~# 'c'
+  if !self.is_comment_enabled()
     if com_str == ""
       return indent . listpat_indent
     else
