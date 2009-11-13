@@ -1,6 +1,6 @@
 " Maintainer:   Yukihiro Nakadaira <yukihiro.nakadaira@gmail.com>
 " License:      This file is placed in the public domain.
-" Last Change:  2008-04-15
+" Last Change:  2009-10-04
 
 let s:cpo_save = &cpo
 set cpo&vim
@@ -11,10 +11,6 @@ endfunction
 
 function autofmt#uax14#import()
   return s:lib
-endfunction
-
-function autofmt#uax14#test()
-  " void
 endfunction
 
 let s:compat = autofmt#compat#import()

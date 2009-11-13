@@ -1,6 +1,6 @@
 " Maintainer:   Yukihiro Nakadaira <yukihiro.nakadaira@gmail.com>
 " License:      This file is placed in the public domain.
-" Last Change:  2007-07-03
+" Last Change:  2009-11-08
 "
 " Options:
 "
@@ -27,10 +27,6 @@ endfunction
 
 function autofmt#japanese#import()
   return s:lib
-endfunction
-
-function autofmt#japanese#test()
-  call s:lib.test()
 endfunction
 
 let s:compat = autofmt#compat#import()
@@ -110,65 +106,6 @@ function! s:lib.get_paragraph(lines)
     let i += 1
   endwhile
   return para
-endfunction
-
-function! s:lib.test()
-  new
-
-  let b:autofmt = self
-  setl formatexpr=b:autofmt.formatexpr()
-  set debug=msg
-  setl textwidth=10 formatoptions=tcnr formatlistpat& comments&
-  setl tabstop& shiftwidth& softtabstop& expandtab&
-  let b:autofmt_allow_over_tw = self.autofmt_allow_over_tw
-  let b:autofmt_allow_over_tw_char = self.autofmt_allow_over_tw_char
-
-  let start = reltime()
-
-  call self.do_test("test1",
-        \ "あいう",
-        \ ["あいう"])
-  call self.do_test("test2",
-        \ "あいうえお",
-        \ ["あいうえお"])
-  call self.do_test("test3",
-        \ "あいうえおか",
-        \ ["あいうえお", "か"])
-  call self.do_test("test4",
-        \ "あいうえお。かきくけこ",
-        \ ["あいうえ", "お。かきく", "けこ"])
-  call self.do_test("test5",
-        \ "あいうえ「お",
-        \ ["あいうえ", "「お"])
-  call self.do_test("test6",
-        \ "  あいうえお",
-        \ ["  あいうえ", "  お"])
-  call self.do_test("test7",
-        \ "aaaaa bbbbあいうえお",
-        \ ["aaaaa bbbb", "あいうえお"])
-  call self.do_test("test8",
-        \ "あいうえおaaa",
-        \ ["あいうえお", "aaa"])
-  call self.do_test("test9",
-        \ "あああああいいいいいううううう\<Up>\<Del>\<Up>\<Del>\<Left>えええ",
-        \ ["ああああえ", "ええあいいいいいううううう"])
-  call self.do_test("test10",
-        \ "          ああ",
-        \ ["          あ", "          あ"])
-  call self.do_test("test11",
-        \ "          あ。",
-        \ ["          あ。"])
-  call self.do_test("test12",
-        \ ["ああああ。。いいい"],
-        \ ["ああああ。", "。いいい"])
-
-  let b:autofmt_allow_over_tw = 2
-
-  call self.do_test("test13",
-        \ ["あああああ。いいい"],
-        \ ["あああああ。", "いいい"])
-
-  echo reltimestr(reltime(start))
 endfunction
 
 let &cpo = s:cpo_save

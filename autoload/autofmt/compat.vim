@@ -1,6 +1,6 @@
 " Maintainer:   Yukihiro Nakadaira <yukihiro.nakadaira@gmail.com>
 " License:      This file is placed in the public domain.
-" Last Change:  2008-12-30
+" Last Change:  2009-11-12
 "
 " Options:
 "
@@ -17,6 +17,8 @@
 "   expandtab
 "   tabstop
 "   ambiwidth
+"   autoindent
+"   copyindent
 "
 "
 " Note:
@@ -39,7 +41,9 @@
 "
 "
 " TODO:
-"   'formatoptions': 'w' 'v' 'b'
+"   'cindent', 'lispindent', 'smartindent', 'indentexpr'
+"
+"   'formatoptions': 'a' 'w' 'v' 'b' 'l'
 "
 "   hoge(); /* format comment here */
 "   hoge(); /* format
@@ -79,10 +83,6 @@ function autofmt#compat#import()
   return s:lib
 endfunction
 
-function autofmt#compat#test()
-  call s:lib.test()
-endfunction
-
 let s:lib = {}
 
 function s:lib.formatexpr()
@@ -113,14 +113,16 @@ function s:lib.format_normal_mode(lnum, count)
   let para = self.get_paragraph(getline(a:lnum, a:lnum + a:count - 1))
   for [i, lines] in reverse(para)
     let lnum = a:lnum + i
+    let lines[0] = self.retab(lines[0])
     let fo_2 = self.get_second_line_leader(lines)
-    let new_lines = self.format_line(self.join_lines(lines), fo_2)
+    let new_lines = self.format_lines(lines, fo_2)
     if len(lines) > len(new_lines)
       silent execute printf("%ddelete _ %d", lnum, len(lines) - len(new_lines))
     elseif len(lines) < len(new_lines)
       call append(lnum, repeat([""], len(new_lines) - len(lines)))
     endif
     call setline(lnum, new_lines)
+    call cursor(lnum + len(new_lines) - 1, 1)
   endfor
 endfunction
 
@@ -143,7 +145,7 @@ function s:lib.format_insert_mode(char)
   let [line, rest] = [line[: col - 1] . a:char, line[col :]]
 
   let fo_2 = self.get_second_line_leader(getline(lnum, lnum + 1))
-  let lines = self.format_line(line, fo_2)
+  let lines = self.format_lines([line], fo_2)
   if len(lines) == 1
     return a:char
   endif
@@ -162,27 +164,36 @@ function s:lib.format_insert_mode(char)
   return a:char
 endfunction
 
-function s:lib.format_line(line, ...)
-  let fo_2 = get(a:000, 0, -1)
-  let col = self.find_boundary(a:line)
-  if col == -1
-    return [a:line]
+function s:lib.format_lines(lines, fo_2)
+  let res = []
+  let line = self.join_lines(a:lines)
+  while 1
+    let col = self.find_boundary(line)
+    if col == -1
+      call add(res, line)
+      break
+    endif
+    let line1 = substitute(line[: col - 1], '\s*$', '', '')
+    let line2 = substitute(line[col :], '^\s*', '', '')
+    if a:fo_2 != -1
+      let leader = a:fo_2
+    else
+      let leader = self.make_next_line_leader(line1)
+    endif
+    call add(res, line1)
+    let line = leader . line2
+  endwhile
+  if self.is_comment_enabled() && mode() == 'n'
+    " " * */" -> " */"
+    let [indent, com_str, mindent, text, com_flags] = self.parse_leader(res[-1])
+    if com_flags =~# 'm'
+      let [s, m, e] = self.find_three_piece_comments(&comments, com_flags, com_str)
+      if text == e[1]
+        let res[-1] = indent . e[1]
+      endif
+    endif
   endif
-  let line1 = substitute(a:line[: col - 1], '\s*$', '', '')
-  let line2 = substitute(a:line[col :], '^\s*', '', '')
-  if fo_2 != -1
-    let leader = fo_2
-  else
-    let leader = self.make_next_line_leader(line1)
-  endif
-  let line2 = leader . line2
-  " TODO: This is ugly hack but simple.  make option?
-  " " * */" -> " */"
-  if mode() == 'n' && leader =~ '\S' && line2 =~ '^\s*\*\s\+\*/\s*$'
-    let line2 = matchstr(line2, '^\s*') . '*/'
-  endif
-  " use same leader for following lines
-  return [line1] + self.format_line(line2, leader)
+  return res
 endfunction
 
 function s:lib.find_boundary(line)
@@ -196,28 +207,30 @@ function s:lib.find_boundary(line)
   while lst[i].col < start_col
     let i += 1
   endwhile
+  let is_prev_one_letter = 0
   let start_idx = i
   let i = self.skip_word(lst, i)
   let i = self.skip_space(lst, i)
   while i < len(lst)
     let brk = self.check_boundary(lst, i)
     let next = self.skip_word(lst, i)
-    if brk == "allow_break" && &fo =~ '1'
+    if is_prev_one_letter && brk == "allow_break" && &fo =~ '1'
       " don't break a line after a one-letter word.
-      let j = (break_idx == -1) ? start_idx : break_idx
-      if (j == 0 || lst[j - 1].c =~ '\s') && lst[j + 1].c =~ '\s'
-        let brk = "allow_break_before"
-      endif
+      let brk = "allow_break_before"
     endif
     if brk == "allow_break"
       let break_idx = i
       if &textwidth < lst[next - 1].virtcol
         return lst[break_idx].col
       endif
+      let is_prev_one_letter = (i == 0 || lst[i - 1].c =~ '\s') &&
+            \ (i + 1 == len(lst) || lst[i + 1].c =~ '\s')
     elseif brk == "allow_break_before"
       if &textwidth < lst[next - 1].virtcol && break_idx != -1
         return lst[break_idx].col
       endif
+      let is_prev_one_letter = (i == 0 || lst[i - 1].c =~ '\s') &&
+            \ (i + 1 == len(lst) || lst[i + 1].c =~ '\s')
     endif
     let i = self.skip_space(lst, next)
   endwhile
@@ -244,18 +257,10 @@ function s:lib.check_boundary(lst, i)
 
   if lst[i-1].c =~ '\s'
     return "allow_break"
-  elseif &fo =~ 'm'
+  elseif &fo =~# 'm'
     let bc = char2nr(lst[i-1].c)
     let ac = char2nr(lst[i].c)
-    if bc > 255 && ac > 255
-      return "allow_break"
-    elseif bc > 255 && ac <= 255
-      return "allow_break"
-    elseif bc <= 255 && ac > 255
-      if len(lst) == i + 1 || lst[i+1].c =~ '\s'
-        " bug?
-        return "no_break"
-      endif
+    if bc > 255 || ac > 255
       return "allow_break"
     endif
   endif
@@ -308,9 +313,24 @@ function s:lib.get_paragraph(lines)
   "   For example:
   "     lines = ["", "line2", "line3", "", "", "line6", ""]
   "     => [ [1, ["line2", "line3"]], [5, ["line6"]] ]
+  "
+  " @see opt.c:same_leader()
+  "
+  " TODO: check for 'f' comment or 'formatlistpat'.  make option?
+  "     orig           vim                 useful?
+  "   1: - line1     1: - line1 line2    1: - line1
+  "   2: line2                           2: line2
+  " use indent?
+  "   1: hoge fuga   1: hoge fuga        1: hoge fuga
+  "   2:   - list1   2:   - list1        2:   - list1
+  "   3:   - list2   3:   - list2 hoge   3:   - list2
+  "   4: hoge fuga   4:     fuga         4: hoge fuga
 
   let res = []
-  let pl = map(copy(a:lines), 'self.parse_leader(v:val)')
+  let pl = []
+  for line in a:lines
+    call add(pl, self.parse_leader(line))
+  endfor
   let i = 0
   while i < len(a:lines)
     while i < len(a:lines) && pl[i][3] == ""
@@ -322,25 +342,21 @@ function s:lib.get_paragraph(lines)
     let start = i
     let i += 1
     while i < len(a:lines) && pl[i][3] != ""
-      " TODO: check for 'f' comment or 'formatlistpat'.  make option?
-      "     orig           vim                 useful?
-      "   1: - line1     1: - line1 line2    1: - line1
-      "   2: line2                           2: line2
-      " use indent?
-      "   1: hoge fuga   1: hoge fuga        1: hoge fuga
-      "   2:   - list1   2:   - list1        2:   - list1
-      "   3:   - list2   3:   - list2 hoge   3:   - list2
-      "   4: hoge fuga   4:     fuga         4: hoge fuga
-      if pl[start][4] !~# 'f'
-            \ && ((pl[i-1][1] == "" && pl[i][1] != "")
-            \  || (pl[i-1][1] != "" && pl[i][1] == ""))
-        " start/end of comment
+      if pl[start][4] =~# 'f'
+        if pl[i][1] != ''
+          break
+        endif
+      elseif pl[start][4] =~# 'e'
         break
-      elseif pl[start][4] !~# 'f'
-            \ && pl[i-1][1] != pl[i][1] && pl[i][4] !~# '[me]'
-        " start of comment (comment leader is changed)
+      elseif pl[start][4] =~# 's'
+        if pl[i][4] !~# 'm'
+          break
+        endif
+      elseif pl[i-1][1] != pl[i][1] || (pl[i-1][2] != '' && pl[i][2] == '')
+        " start/end of comment or different comment
         break
-      elseif (&formatoptions =~# 'n' && pl[i][3] =~ &formatlistpat)
+      endif
+      if (&formatoptions =~# 'n' && pl[i][3] =~ &formatlistpat)
         " start of list
         break
       elseif &formatoptions =~# '2'
@@ -364,9 +380,13 @@ function s:lib.join_lines(lines)
 
   let res = a:lines[0]
   for line in a:lines[1:]
-    let [indent, com_str, mindent, text, com_flags] = self.parse_leader(line)
-    if com_flags =~# '[se]'
-      let text = com_str . mindent . text
+    if self.is_comment_enabled()
+      let [indent, com_str, mindent, text, com_flags] = self.parse_leader(line)
+      if com_flags =~# '[se]'
+        let text = com_str . mindent . text
+      endif
+    else
+      let text = line
     endif
     if res == ""
       let res = text
@@ -461,6 +481,21 @@ function s:lib.parse_opt_comments(comments)
   return res
 endfunction
 
+function s:lib.find_three_piece_comments(comments, flags, str)
+  let coms = self.parse_opt_comments(a:comments)
+  for i in range(len(coms))
+    if coms[i][0] == a:flags && coms[i][1] == a:str
+      if a:flags =~# 's'
+        return coms[i : i + 2]
+      elseif a:flags =~# 'm'
+        return coms[i - 1 : i + 1]
+      elseif a:flags =~# 'e'
+        return coms[i - 2 : i]
+      endif
+    endif
+  endfor
+endfunction
+
 function s:lib.line2list(line)
   let res = []
   let [col, virtcol] = [0, 0]
@@ -501,7 +536,10 @@ function s:lib.get_second_line_leader(lines)
 endfunction
 
 function s:lib.make_next_line_leader(line)
+  let do_si = !&paste && &smartindent && !&cindent
   let [indent, com_str, mindent, text, com_flags] = self.parse_leader(a:line)
+  let extra_space = ''
+  let leader = indent . com_str . mindent
   if &formatoptions =~# 'n'
     let listpat = matchstr(text, &formatlistpat)
     let listpat_indent = repeat(' ', self.str_width(listpat))
@@ -510,57 +548,131 @@ function s:lib.make_next_line_leader(line)
   endif
   if !self.is_comment_enabled()
     if com_str == ""
-      return indent . listpat_indent
+      if !&autoindent && listpat_indent == ''
+        let indent = ''
+      endif
+      let [indent, com_str, mindent] = [indent, '', listpat_indent]
     else
-      return indent
+      if !&autoindent
+        let indent = ''
+      endif
+      let [indent, com_str, mindent] = [indent, '', '']
     endif
   elseif com_str == ""
-    return indent . listpat_indent
-  elseif com_flags =~# 'f'
-    return indent . repeat(' ', self.str_width(com_str)) . mindent . listpat_indent
-  elseif com_flags =~# 's'
-    " make a middle of three-piece comment
-    " TODO: keep <Tab> in mindent
-    let coms = self.parse_opt_comments(&comments)
-    for i in range(len(coms))
-      if coms[i][0] =~# 's'
-        let [s, m, e] = coms[i : i + 2]
-        if s == [com_flags, com_str]
-          break
+    if !&autoindent
+      let indent = ''
+    endif
+    let [indent, com_str, mindent] = [indent, '', listpat_indent]
+  elseif com_flags =~# 'e'
+    let [indent, com_str, mindent] = [indent, '', '']
+  else
+    let extra_space = ''
+    if com_flags =~# 's'
+      if !&autoindent
+        let indent = ''
+      endif
+      let [s, m, e] = self.find_three_piece_comments(&comments, com_flags, com_str)
+      let lead_repl = m[1]
+      if leader !~ ' $' && m[0] =~# 'b'
+        let extra_space = ' '
+      endif
+    elseif com_flags =~# 'm'
+      " pass
+    elseif com_flags =~# 'f'
+      let lead_repl = ''
+    else
+      " pass
+    endif
+    if exists('lead_repl')
+      let off = matchstr(com_flags, '-\?\d\+\ze[^0-9]*') + 0
+      let adjust = matchstr(com_flags, '\c[lr]\ze[^lr]*')
+      if adjust ==# 'r'
+        let newindent = self.str_width(indent . com_str) - self.str_width(lead_repl)
+        if newindent < 0
+          let newindent = 0
+        endif
+      else
+        let newindent = self.str_width(indent)
+        let w1 = self.str_width(com_str)
+        let w2 = self.str_width(lead_repl)
+        if w1 > w2 && mindent[0] != "\t"
+          let mindent = repeat(' ', w1 - w2) . mindent
         endif
       endif
-    endfor
-    let off = matchstr(com_flags, '-\?\d\+\ze[^0-9]*') + 0
-    let adjust = matchstr(com_flags, '[lr]\ze[^lr]*')
-    if adjust == 'r'
-      let newindent = max([0, self.str_width(indent . com_str) - self.str_width(m[1])])
-      let pad = 0
+      let _leader = repeat(' ', newindent) . lead_repl . mindent
+      " Recompute the indent, it may have changed.
+      if &autoindent || do_si
+        let newindent = self.str_width(matchstr(_leader, '^\s*'))
+      endif
+      if newindent + off < 0
+        let off = -newindent
+        let newindent = 0
+      else
+        let newindent += off
+      endif
+      " Correct trailing spaces for the shift, so that alignment remains equal.
+      " Don't do it when there is a tab before the space
+      while off > 0 && _leader != '' && _leader =~ ' $' && _leader !~ '\t'
+        let _leader = strpart(_leader, 0, len(_leader) - 1)
+        let off -= 1
+      endwhile
+      let _ = matchlist(_leader, '^\s*\(\S*\)\(\s*\)$')
+      if _[2] != ''
+        let extra_space = ''
+      endif
+      let [indent, com_str, mindent] = [repeat(' ', newindent), _[1], _[2] . extra_space . listpat_indent]
     else
-      let newindent = max([0, self.str_width(indent)])
-      let pad = max([0, self.str_width(com_str) - self.str_width(m[1])])
+      let [indent, com_str, mindent] = [indent, com_str, mindent . listpat_indent]
     endif
-    if newindent + off > 0
-      let newindent += off
-    endif
-    if mindent == ""
-      let pad = 1
-    else
-      let pad = max([0, pad + self.str_width(mindent) - max([0, off])])
-    endif
-    if &expandtab
-      let leader = repeat(' ', newindent) . m[1] . repeat(' ', pad)
-    else
-      let leader = repeat("\t", newindent / &tabstop) .
-            \ repeat(' ', newindent % &tabstop) . m[1] . repeat(' ', pad)
-    endif
-    return leader . listpat_indent
-  elseif com_flags =~# 'm'
-    return indent . com_str . mindent . listpat_indent
-  elseif com_flags =~# 'e'
-    return indent
-  else
-    return indent . com_str . mindent . listpat_indent
   endif
+  if &copyindent
+    let [indent, rest] = self.copy_indent(a:line, indent)
+  else
+    let indent = self.retab(indent)
+    let rest = ''
+  endif
+  let leader = indent . rest . com_str . mindent
+  if com_str == ''
+    let leader = self.retab(leader, len(indent))
+  endif
+  return leader
+endfunction
+
+function s:lib.copy_indent(line1, line2)
+  " @return [copied_indent, rest_indent . text]
+  let indent1 = matchstr(a:line1, '^\s*')
+  let indent2 = matchstr(a:line2, '^\s*')
+  let text = matchstr(a:line2, '^\s*\zs.*$')
+  let n1 = self.str_width(indent1)
+  let n2 = self.str_width(indent2)
+  let indent = matchstr(indent1, '^\s*\%<' . (n2 + 2) . 'v')
+  if n2 > n1
+    let text = repeat(' ', n2 - n1) . text
+  endif
+  return [indent, text]
+endfunction
+
+function s:lib.retab(line, ...)
+  let col = get(a:000, 0, 0)
+  let expandtab = get(a:000, 1, &expandtab)
+  let tabstop = get(a:000, 2, &tabstop)
+  let s2 = matchstr(a:line, '^\s*', col)
+  if s2 == ''
+    return a:line
+  endif
+  let s1 = strpart(a:line, 0, col)
+  let t = strpart(a:line, col + len(s2))
+  let n1 = self.str_width(s1)
+  let n2 = self.str_width(s2, n1)
+  if expandtab
+    let s2 = repeat(' ', n2)
+  else
+    if n1 != 0 && n2 >= (tabstop - (n1 % tabstop))
+      let n2 += n1 % tabstop
+    endif
+    let s2 = repeat("\t", n2 / tabstop) . repeat(' ', n2 % tabstop)
+  endif
+  return s1 . s2 . t
 endfunction
 
 function s:lib.str_width(str, ...)
@@ -577,13 +689,17 @@ function s:lib.char_width(c, ...)
   if a:c == ""
     return 0
   elseif a:c == "\t"
-    return self.tab_width(vcol)
+    return &tabstop - (vcol % &tabstop)
+  elseif a:c =~ '^.\%2v'  " single-width char
+    return 1
+  elseif a:c =~ '^.\%3v'  " double-width char or ctrl-code (^X)
+    return 2
+  elseif a:c =~ '^.\%5v'  " <XX>    (^X with :set display=uhex)
+    return 4
+  elseif a:c =~ '^.\%7v'  " <XXXX>  (e.g. U+FEFF)
+    return 6
   endif
-  return (a:c =~ '^.\%2v') ? 1 : 2
-endfunction
-
-function s:lib.tab_width(vcol)
-  return &tabstop - (a:vcol % &tabstop)
+  return 0
 endfunction
 
 function s:lib.get_opt(name)
@@ -592,96 +708,6 @@ function s:lib.get_opt(name)
         \ get(b:, a:name,
         \ get(g:, a:name,
         \ get(self, a:name)))))
-endfunction
-
-function s:lib.do_test(testname, input, result)
-  echo a:testname
-  if type(a:input) == type([]) || a:input == strtrans(a:input)
-    %delete
-    call setline(1, a:input)
-    normal! ggVGgq
-    if getline(1, "$") != a:result
-      throw a:testname . " normal failed!"
-    endif
-  endif
-  if type(a:input) == type("")
-    %delete
-    execute "normal! i" . a:input
-    if getline(1, "$") != a:result
-      throw a:testname . " insert failed!"
-    endif
-  endif
-endfunction
-
-function s:lib.test()
-  new
-
-  let b:autofmt = self
-  setl formatexpr=b:autofmt.formatexpr()
-  set debug=msg
-  setl textwidth=10 formatoptions=tcnr formatlistpat& comments&
-  setl tabstop& shiftwidth& softtabstop& expandtab&
-
-  let start = reltime()
-
-  call self.do_test("test1",
-        \ "aaaaa",
-        \ ["aaaaa"])
-  call self.do_test("test2",
-        \ "aaaaa bbbb",
-        \ ["aaaaa bbbb"])
-  call self.do_test("test3",
-        \ "aaaaa bbbbb",
-        \ ["aaaaa", "bbbbb"])
-  call self.do_test("test4",
-        \ "aaaaa    bbbbb     ",
-        \ ["aaaaa", "bbbbb     "])
-  call self.do_test("test5",
-        \ "aaaaa bbbbb ccccc",
-        \ ["aaaaa", "bbbbb", "ccccc"])
-  call self.do_test("test6",
-        \ "aaaaaaaaaabbbbbbbbbb",
-        \ ["aaaaaaaaaabbbbbbbbbb"])
-  call self.do_test("test7",
-        \ "  aaaaaaaaaabbbbbbbbbb",
-        \ ["  aaaaaaaaaabbbbbbbbbb"])
-  call self.do_test("test8",
-        \ ["aaaa", "bbbb", "cccccccccccc", "dddd"],
-        \ ["aaaa bbbb", "cccccccccccc", "dddd"])
-  call self.do_test("test9",
-        \ "/* aaaaa bbbbb ccccc",
-        \ ["/* aaaaa", " * bbbbb", " * ccccc"])
-  call self.do_test("test10",
-        \ ["/* aaaaa bbbbb ccccc */"],
-        \ ["/* aaaaa", " * bbbbb", " * ccccc", " */"])
-  call self.do_test("test11",
-        \ ["/* aaa", " * bbb", " * ccc", " * ddd", " */"],
-        \ ["/* aaa bbb", " * ccc ddd", " */"])
-  call self.do_test("test12",
-        \ "1. aaaaa bbbbb",
-        \ ["1. aaaaa", "   bbbbb"])
-  call self.do_test("test13",
-        \ "/*\<CR>1. aaaaa bbbbb",
-        \ ["/*", " * 1. aaaaa", " *    bbbbb"])
-  call self.do_test("test14",
-        \ "\t/*   aaa bbb",
-        \ ["\t/*   aaa", "\t *   bbb"])
-  call self.do_test("test15",
-        \ ["", "", "aaa", "aaa", "", "/*", " * bbb", " * bbb", " *", " * ccc", " */", ""],
-        \ ["", "", "aaa aaa", "", "/*", " * bbb bbb", " *", " * ccc", " */", ""])
-
-  setl fo+=2
-  let &l:comments = 'sO:* -,mO:*  ,exO:*/,s1:/*,mb:*,ex:*/,://'
-  " check for 'mO:*  '
-
-  call self.do_test("test16",
-        \ ["  aaaaa bbbbb", "ccccc ddddd"],
-        \ ["  aaaaa", "bbbbb", "ccccc", "ddddd"])
-  call self.do_test("test17",
-        \ ["/*  aaaaa bbbbb", " * ccccc ddddd", " *", " *  aaaaa bbbbb", " * ccccc ddddd", " */"],
-        \ ["/*  aaaaa", " * bbbbb", " * ccccc", " * ddddd", " *", " *  aaaaa", " * bbbbb", " * ccccc", " * ddddd", " */"])
-
-  echo reltimestr(reltime(start))
 endfunction
 
 let &cpo = s:cpo_save
