@@ -1,6 +1,6 @@
 " Maintainer:   Yukihiro Nakadaira <yukihiro.nakadaira@gmail.com>
 " License:      This file is placed in the public domain.
-" Last Change:  2009-11-12
+" Last Change:  2011-01-08
 "
 " Options:
 "
@@ -26,9 +26,6 @@
 "   formatting) can be formatted in practical.
 "
 "   Do not work when 'formatoptions' have 'a' flag.
-"
-"   To return 1 means to use Vim's internal formatting but it doesn't work in
-"   Normal mode, return value is simply ignored.
 "
 "   v:lnum can be changed when using "normal! i\<BS>" or something that uses
 "   v:lnum.  Take care to use such command in formatexpr.
@@ -83,6 +80,29 @@ function autofmt#compat#import()
   return s:lib
 endfunction
 
+if exists('*strdisplaywidth')
+  let s:strdisplaywidth = function('strdisplaywidth')
+else
+  function s:strdisplaywidth(str, ...)
+    let vcol = get(a:000, 0, 0)
+    let w = 0
+    for c in split(a:str, '\zs')
+      if c == "\t"
+        let w += &tabstop - ((vcol + w) % &tabstop)
+      elseif c =~ '^.\%2v'  " single-width char
+        let w += 1
+      elseif c =~ '^.\%3v'  " double-width char or ctrl-code (^X)
+        let w += 2
+      elseif c =~ '^.\%5v'  " <XX>    (^X with :set display=uhex)
+        let w += 4
+      elseif c =~ '^.\%7v'  " <XXXX>  (e.g. U+FEFF)
+        let w += 6
+      endif
+    endfor
+    return w
+  endfunction
+endif
+
 let s:lib = {}
 
 function s:lib.formatexpr()
@@ -132,7 +152,7 @@ function s:lib.format_insert_mode(char)
 
   let lnum = line('.')
   let col = col('.') - 1
-  let vcol = (virtcol('.') - 1) + self.char_width(a:char)
+  let vcol = (virtcol('.') - 1) + s:strdisplaywidth(a:char)
   let line = getline(lnum)
 
   if &textwidth == 0 || vcol <= &textwidth
@@ -362,8 +382,8 @@ function s:lib.get_paragraph(lines)
       elseif &formatoptions =~# '2'
         " separate with indent
         " make this behavior optional?
-        let indent1 = self.str_width(pl[i-1][0] . pl[i-1][1] . pl[i-1][2])
-        let indent2 = self.str_width(pl[i][0] . pl[i][1] . pl[i][2])
+        let indent1 = s:strdisplaywidth(pl[i-1][0] . pl[i-1][1] . pl[i-1][2])
+        let indent2 = s:strdisplaywidth(pl[i][0] . pl[i][1] . pl[i][2])
         if indent1 < indent2
           break
         endif
@@ -500,7 +520,7 @@ function s:lib.line2list(line)
   let res = []
   let [col, virtcol] = [0, 0]
   for c in split(a:line, '\zs')
-    let w = self.char_width(c, virtcol)
+    let w = s:strdisplaywidth(c, virtcol)
     let virtcol += w
     call add(res, {
           \ "c": c,
@@ -524,11 +544,11 @@ function s:lib.get_second_line_leader(lines)
   let [indent1, com_str1, mindent1, text1, _] = self.parse_leader(a:lines[0])
   let [indent2, com_str2, mindent2, text2, _] = self.parse_leader(a:lines[1])
   if com_str1 == "" && com_str2 == "" && text2 != ""
-    if self.str_width(indent1) > self.str_width(indent2)
+    if s:strdisplaywidth(indent1) > s:strdisplaywidth(indent2)
       return indent2
     endif
   elseif com_str1 != "" && com_str2 != "" && text2 != ""
-    if self.str_width(indent1 . com_str1 . mindent1) > self.str_width(indent2 . com_str2 . mindent2)
+    if s:strdisplaywidth(indent1 . com_str1 . mindent1) > s:strdisplaywidth(indent2 . com_str2 . mindent2)
       return indent2 . com_str2 . mindent2
     endif
   endif
@@ -542,7 +562,7 @@ function s:lib.make_next_line_leader(line)
   let leader = indent . com_str . mindent
   if &formatoptions =~# 'n'
     let listpat = matchstr(text, &formatlistpat)
-    let listpat_indent = repeat(' ', self.str_width(listpat))
+    let listpat_indent = repeat(' ', s:strdisplaywidth(listpat))
   else
     let listpat_indent = ""
   endif
@@ -587,14 +607,14 @@ function s:lib.make_next_line_leader(line)
       let off = matchstr(com_flags, '-\?\d\+\ze[^0-9]*') + 0
       let adjust = matchstr(com_flags, '\c[lr]\ze[^lr]*')
       if adjust ==# 'r'
-        let newindent = self.str_width(indent . com_str) - self.str_width(lead_repl)
+        let newindent = s:strdisplaywidth(indent . com_str) - s:strdisplaywidth(lead_repl)
         if newindent < 0
           let newindent = 0
         endif
       else
-        let newindent = self.str_width(indent)
-        let w1 = self.str_width(com_str)
-        let w2 = self.str_width(lead_repl)
+        let newindent = s:strdisplaywidth(indent)
+        let w1 = s:strdisplaywidth(com_str)
+        let w2 = s:strdisplaywidth(lead_repl)
         if w1 > w2 && mindent[0] != "\t"
           let mindent = repeat(' ', w1 - w2) . mindent
         endif
@@ -602,7 +622,7 @@ function s:lib.make_next_line_leader(line)
       let _leader = repeat(' ', newindent) . lead_repl . mindent
       " Recompute the indent, it may have changed.
       if &autoindent || do_si
-        let newindent = self.str_width(matchstr(_leader, '^\s*'))
+        let newindent = s:strdisplaywidth(matchstr(_leader, '^\s*'))
       endif
       if newindent + off < 0
         let off = -newindent
@@ -643,8 +663,8 @@ function s:lib.copy_indent(line1, line2)
   let indent1 = matchstr(a:line1, '^\s*')
   let indent2 = matchstr(a:line2, '^\s*')
   let text = matchstr(a:line2, '^\s*\zs.*$')
-  let n1 = self.str_width(indent1)
-  let n2 = self.str_width(indent2)
+  let n1 = s:strdisplaywidth(indent1)
+  let n2 = s:strdisplaywidth(indent2)
   let indent = matchstr(indent1, '^\s*\%<' . (n2 + 2) . 'v')
   if n2 > n1
     let text = repeat(' ', n2 - n1) . text
@@ -662,8 +682,8 @@ function s:lib.retab(line, ...)
   endif
   let s1 = strpart(a:line, 0, col)
   let t = strpart(a:line, col + len(s2))
-  let n1 = self.str_width(s1)
-  let n2 = self.str_width(s2, n1)
+  let n1 = s:strdisplaywidth(s1)
+  let n2 = s:strdisplaywidth(s2, n1)
   if expandtab
     let s2 = repeat(' ', n2)
   else
@@ -673,33 +693,6 @@ function s:lib.retab(line, ...)
     let s2 = repeat("\t", n2 / tabstop) . repeat(' ', n2 % tabstop)
   endif
   return s1 . s2 . t
-endfunction
-
-function s:lib.str_width(str, ...)
-  let vcol = get(a:000, 0, 0)
-  let n = 0
-  for c in split(a:str, '\zs')
-    let n += self.char_width(c, n + vcol)
-  endfor
-  return n
-endfunction
-
-function s:lib.char_width(c, ...)
-  let vcol = get(a:000, 0, 0)
-  if a:c == ""
-    return 0
-  elseif a:c == "\t"
-    return &tabstop - (vcol % &tabstop)
-  elseif a:c =~ '^.\%2v'  " single-width char
-    return 1
-  elseif a:c =~ '^.\%3v'  " double-width char or ctrl-code (^X)
-    return 2
-  elseif a:c =~ '^.\%5v'  " <XX>    (^X with :set display=uhex)
-    return 4
-  elseif a:c =~ '^.\%7v'  " <XXXX>  (e.g. U+FEFF)
-    return 6
-  endif
-  return 0
 endfunction
 
 function s:lib.get_opt(name)

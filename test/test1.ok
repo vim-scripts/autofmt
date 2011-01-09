@@ -123,9 +123,11 @@ dddd
 
 1254595145
 {
-aaaaa bbb
+aaaaa
+bbb
 
-aaaaa bbb
+aaaaa
+bbb
 }
 {
 aaaaa
@@ -509,11 +511,11 @@ ccc
 
 1254595172
 {
-aaaaa
-bbbbＡ
+aaaaa bbbb
+Ａ
 
-aaaaa
-bbbbＡ
+aaaaa bbbb
+Ａ
 }
 {
 aaaaa bbbb
