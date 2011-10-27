@@ -1,6 +1,6 @@
 " Maintainer:   Yukihiro Nakadaira <yukihiro.nakadaira@gmail.com>
 " License:      This file is placed in the public domain.
-" Last Change:  2011-01-10
+" Last Change:  2011-01-11
 "
 " Options:
 "
@@ -60,9 +60,9 @@ endif
 
 function! s:lib.check_boundary(lst, i)
   let [lst, i] = [a:lst, a:i]
-  let tw = &textwidth + self.get_opt("autofmt_allow_over_tw")
+  let tw = self.textwidth + self.get_opt("autofmt_allow_over_tw")
   let tw_char = self.get_opt("autofmt_allow_over_tw_char")
-  if &textwidth < lst[i].virtcol && lst[i].virtcol <= tw
+  if self.textwidth < lst[i].virtcol && lst[i].virtcol <= tw
     " Dangling wrap.  Allow character, prohibited a line break before, to
     " over 'textwidth'.
     if stridx(tw_char, lst[i].c) != -1
